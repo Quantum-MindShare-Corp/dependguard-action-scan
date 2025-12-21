@@ -1,0 +1,21 @@
+name: 'DependGuard Scan'
+description: 'Run dependency security scan with DependGuard'
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  server-url:
+    description: 'Your DependGuard server URL (e.g., http://localhost:3000)'
+    required: true
+    default: 'http://localhost:3000'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run DependGuard Scan
+      run: |
+        curl -X POST "${{ inputs.server-url }}/scan" \
+          -H "Content-Type: application/json" \
+          -d '{"repo": "${{ github.repository }}", "ref": "${{ github.ref }}"}'
+      shell: bash
