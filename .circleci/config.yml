@@ -1,0 +1,50 @@
+version: 2.1
+
+jobs:
+  dependguard-scan:
+    docker:
+      - image: cimg/node:20.9
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: npm ci
+      - run:
+          name: Start DependGuard server
+          command: node server.js
+          background: true
+      - run:
+          name: Wait for DependGuard to start
+          command: |
+            for i in {1..30}; do
+              if curl -s http://localhost:3000/health; then
+                echo "DependGuard ready"
+                break
+              fi
+              sleep 2
+            done
+      - run:
+          name: Run dependency scan
+          command: curl -s http://localhost:3000/data > dependguard-report.json
+      - store_artifacts:
+          path: dependguard-report.json
+          destination: dependguard-report
+      - run:
+          name: Fail on vulnerabilities or low health
+          command: |
+            node -e "
+            const report = require('./dependguard-report.json');
+            const stats = report.stats || {};
+            if (stats.vulnerable > 0 || stats.healthScore < 80) {
+              console.log('DependGuard found issues:');
+              console.log('Vulnerabilities:', stats.vulnerable);
+              console.log('Health Score:', stats.healthScore);
+              process.exit(1);
+            }
+            console.log('DependGuard scan passed');
+            "
+
+workflows:
+  scan:
+    jobs:
+      - dependguard-scan
