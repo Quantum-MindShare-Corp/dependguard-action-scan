@@ -1,0 +1,63 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm ci'
+            }
+        }
+
+        stage('Start DependGuard Server') {
+            steps {
+                sh 'node server.js &'
+                // Wait for server to be ready
+                timeout(time: 60, unit: 'SECONDS') {
+                    waitUntil {
+                        script {
+                            def r = sh script: 'curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || true', returnStdout: true
+                            return r.trim() == "200"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Run DependGuard Scan') {
+            steps {
+                sh 'curl -s http://localhost:3000/data > dependguard-report.json'
+                archiveArtifacts artifacts: 'dependguard-report.json', fingerprint: true
+            }
+        }
+
+        stage('Check for Issues') {
+            steps {
+                script {
+                    def report = readJSON file: 'dependguard-report.json'
+                    def stats = report.stats
+                    if (stats.vulnerable > 0 || stats.healthScore < 80) {
+                        echo "DependGuard found issues:"
+                        echo "Vulnerabilities: ${stats.vulnerable}"
+                        echo "Health Score: ${stats.healthScore}"
+                        error "Dependency scan failed — fix vulnerabilities or outdated packages"
+                    } else {
+                        echo "DependGuard scan passed!"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Kill DependGuard server
+            sh 'pkill -f "node server.js" || true'
+        }
+    }
+}
